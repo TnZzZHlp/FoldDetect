@@ -6,6 +6,7 @@
 import argparse
 import logging
 import sys
+import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -40,6 +41,7 @@ def parse_arguments():
   python main.py -d ./images --no-recursive     # 不递归子目录
   python main.py -d ./images -v                 # 详细输出模式
   python main.py -d ./images -o results.txt     # 保存结果到文件
+  python main.py -d ./images --target ./folded  # 将折角图片移动到folded目录
         """,
     )
 
@@ -62,6 +64,10 @@ def parse_arguments():
     parser.add_argument("--no-progress", action="store_true", help="不显示进度条")
 
     parser.add_argument("-o", "--output", type=str, help="输出结果文件路径（可选）")
+
+    parser.add_argument(
+        "--target", type=str, help="将检测到折角的图片移动到指定目录（可选）"
+    )
 
     return parser.parse_args()
 
@@ -105,7 +111,63 @@ def print_results(results, stats, verbose=False):
             print(f"  • {path}: {error}")
             if verbose:
                 print(f"    完整路径: {result['image_path']}")
-        print("-" * 60)
+
+
+def move_folded_images(results, target_dir):
+    """
+    将检测到折角的图片移动到目标目录
+
+    Args:
+        results: 检测结果列表
+        target_dir: 目标目录路径
+
+    Returns:
+        移动成功的文件数量
+    """
+    target_path = Path(target_dir)
+
+    # 创建目标目录（如果不存在）
+    try:
+        target_path.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"创建目标目录失败: {str(e)}")
+        return 0
+
+    # 筛选出有折角的图片
+    folded_images = [r for r in results if r["has_fold"]]
+
+    if not folded_images:
+        print("\n没有需要移动的图片。")
+        return 0
+
+    print(f"\n开始移动 {len(folded_images)} 张折角图片到: {target_path.absolute()}")
+
+    moved_count = 0
+    failed_count = 0
+
+    for result in folded_images:
+        source_path = Path(result["image_path"])
+        dest_path = target_path / source_path.name
+
+        # 如果目标文件已存在，添加序号
+        if dest_path.exists():
+            counter = 1
+            stem = source_path.stem
+            suffix = source_path.suffix
+            while dest_path.exists():
+                dest_path = target_path / f"{stem}_{counter}{suffix}"
+                counter += 1
+
+        try:
+            shutil.move(str(source_path), str(dest_path))
+            moved_count += 1
+            logging.info(f"已移动: {source_path.name} -> {dest_path}")
+        except Exception as e:
+            failed_count += 1
+            logging.error(f"移动失败 {source_path.name}: {str(e)}")
+
+    print(f"\n移动完成: 成功 {moved_count} 张, 失败 {failed_count} 张")
+    return moved_count
 
 
 def save_results(results, stats, output_file):
@@ -193,6 +255,10 @@ def main():
     # 保存结果（如果指定了输出文件）
     if args.output:
         save_results(results, stats, args.output)
+
+    # 移动折角图片（如果指定了目标目录）
+    if args.target:
+        move_folded_images(results, args.target)
 
     print("\n检测完成！\n")
 

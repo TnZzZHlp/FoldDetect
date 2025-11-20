@@ -28,3 +28,6 @@ detection_results/
 *.swo
 *~
 
+detected
+missing_markers
+
