@@ -110,7 +110,7 @@ class FoldDetector:
 
     def _detect_fold_in_region(self, region: np.ndarray) -> bool:
         """
-        在指定区域检测折角（优化版）
+        在指定区域检测折角（严格模式 - 降低误报率）
 
         Args:
             region: 图像区域（灰度）
@@ -122,46 +122,40 @@ class FoldDetector:
             if region.size == 0:
                 return False
 
-            # 检测得分，综合多个特征
-            fold_score = 0
-            max_score = 0
-
-            # 1. 预处理：降噪
+            # 预处理：降噪
             denoised = cv2.GaussianBlur(region, (5, 5), 0)
 
-            # 2. 阴影检测（折角通常会产生阴影）
-            shadow_score = self._detect_shadow(denoised)
-            fold_score += shadow_score
-            max_score += 1
-
-            # 3. 改进的边缘检测 - 多尺度
-            edge_score = self._detect_fold_edges(denoised)
-            fold_score += edge_score
-            max_score += 1
-
-            # 4. 三角形区域检测（折角形成三角形）
+            # 核心检测：三角形区域检测（折角最可靠的特征）
             triangle_score = self._detect_triangle_fold(denoised)
-            fold_score += triangle_score * 2  # 三角形是强特征，权重更高
-            max_score += 2
 
-            # 5. 纹理分析（折角区域纹理会发生变化）
-            texture_score = self._analyze_texture_change(region)
-            fold_score += texture_score
-            max_score += 1
+            # 如果没有检测到三角形，直接返回False
+            # 真正的折角必然会有三角形特征
+            if triangle_score < 0.5:
+                logger.debug(
+                    f"No triangle detected (score: {triangle_score:.2f}), not a fold"
+                )
+                return False
 
-            # 6. 角点检测（保留原有方法）
-            corner_score = self._detect_corners(region)
-            fold_score += corner_score
-            max_score += 1
+            # 辅助验证：边缘检测
+            edge_score = self._detect_fold_edges(denoised)
 
-            # 综合评分：如果得分超过阈值，认为检测到折角
-            confidence = fold_score / max_score if max_score > 0 else 0
-            threshold = self.params.get("fold_confidence_threshold", 0.4)
+            # 禁用容易误报的特征
+            # shadow_score角点检测会被定位标记点误触发
+            shadow_score = 0  # 禁用阴影检测
+            corner_score = 0  # 禁用角点检测
+            texture_score = 0  # 禁用纹理检测（也容易误报）
+
+            # 简化的评分系统 - 只使用三角形和边缘
+            fold_score = triangle_score * 3.0 + edge_score * 1.0  # 三角形权重更高
+            max_score = 4.0
+            confidence = fold_score / max_score
+
+            # 更严格的阈值
+            threshold = self.params.get("fold_confidence_threshold", 0.75)
 
             logger.debug(
-                f"Fold detection scores - Shadow: {shadow_score:.2f}, Edge: {edge_score:.2f}, "
-                f"Triangle: {triangle_score:.2f}, Texture: {texture_score:.2f}, "
-                f"Corner: {corner_score:.2f}, Confidence: {confidence:.2f}"
+                f"Fold detection scores - Triangle: {triangle_score:.2f}, Edge: {edge_score:.2f}, "
+                f"Confidence: {confidence:.2f}, Threshold: {threshold:.2f}"
             )
 
             return confidence > threshold

@@ -34,10 +34,10 @@ DETECTION_CONFIG = {
     "canny_threshold2": 150,
     "canny_aperture": 3,
     # 折角判断阈值
-    "corner_region_ratio": 0.15,  # 角落区域大小（相对于图片尺寸的比例）
+    "corner_region_ratio": 0.10,  # 角落区域大小（从15%缩小到10%，减少干扰）
     "fold_angle_threshold": 20,  # 折角角度阈值（度）
-    "min_contour_area_ratio": 0.01,  # 最小轮廓面积比例
-    "fold_confidence_threshold": 0.4,  # 折角检测置信度阈值（0-1），越高越严格
+    "min_contour_area_ratio": 0.02,  # 最小轮廓面积比例（从1%提高到2%，过滤小轮廓）
+    "fold_confidence_threshold": 0.75,  # 置信度阈值（从0.4提高到0.75，大幅降低误报）
     # 图像预处理
     "blur_kernel_size": (5, 5),
     "resize_max_dimension": 1024,  # 为提高处理速度，限制最大尺寸

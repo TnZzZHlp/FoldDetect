@@ -7,8 +7,12 @@ import argparse
 import logging
 import sys
 import shutil
+import threading
 from pathlib import Path
 from datetime import datetime
+
+import cv2
+import numpy as np
 
 from config import (
     DEFAULT_THREAD_COUNT,
@@ -36,12 +40,14 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python main.py -d ./images                    # 检测images目录下的所有图片
-  python main.py -d ./images -t 8               # 使用8个线程
-  python main.py -d ./images --no-recursive     # 不递归子目录
-  python main.py -d ./images -v                 # 详细输出模式
-  python main.py -d ./images -o results.txt     # 保存结果到文件
-  python main.py -d ./images --target ./folded  # 将折角图片移动到folded目录
+  python main.py -d ./images                           # 检测images目录下的所有图片
+  python main.py -d ./images -t 8                      # 使用8个线程
+  python main.py -d ./images --no-recursive            # 不递归子目录
+  python main.py -d ./images -v                        # 详细输出模式
+  python main.py -d ./images -o results.txt            # 保存结果到文件
+  python main.py -d ./images --target ./folded         # 将折角图片移动到folded目录
+  python main.py -d ./images --target ./f --visualize  # 移动并生成可视化图片
+  python main.py -d ./images --target ./f --instant-move --visualize  # 即时移动+可视化
         """,
     )
 
@@ -69,7 +75,193 @@ def parse_arguments():
         "--target", type=str, help="将检测到折角的图片移动到指定目录（可选）"
     )
 
+    parser.add_argument(
+        "--visualize", action="store_true", help="生成可视化图片（标注折角位置）"
+    )
+
+    parser.add_argument(
+        "--instant-move",
+        action="store_true",
+        help="检测到折角后立即移动（而不是等待全部完成）",
+    )
+
     return parser.parse_args()
+
+
+def visualize_fold_detection(image_path: str, result: dict, output_path: str) -> bool:
+    """
+    生成折角检测的可视化图片
+
+    Args:
+        image_path: 原始图片路径
+        result: 检测结果字典
+        output_path: 输出图片路径
+
+    Returns:
+        是否成功生成可视化图片
+    """
+    try:
+        from config import DETECTION_PARAMS
+
+        # 读取图片
+        image_array = np.fromfile(image_path, dtype=np.uint8)
+        image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return False
+
+        height, width = image.shape[:2]
+        corner_size = int(min(height, width) * DETECTION_PARAMS["corner_region_ratio"])
+
+        # 定义四个角落的位置
+        corners_coords = {
+            "top_left": (0, 0, corner_size, corner_size),
+            "top_right": (width - corner_size, 0, width, corner_size),
+            "bottom_left": (0, height - corner_size, corner_size, height),
+            "bottom_right": (width - corner_size, height - corner_size, width, height),
+        }
+
+        # 标记检测到折角的区域
+        for corner_name in result.get("folded_corners", []):
+            if corner_name in corners_coords:
+                x1, y1, x2, y2 = corners_coords[corner_name]
+                # 画矩形框
+                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 3)
+                # 添加文字标签
+                label = corner_name.replace("_", " ").title()
+                cv2.putText(
+                    image,
+                    label,
+                    (x1 + 10, y1 + 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2,
+                )
+
+        # 在图片上显示总体结果
+        status_text = f"Fold: {result.get('has_fold', False)} (Conf: {result.get('confidence', 0):.2f})"
+        cv2.putText(
+            image,
+            status_text,
+            (10, height - 20),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0) if result.get("has_fold") else (255, 0, 0),
+            2,
+        )
+
+        # 保存结果图片
+        _, encoded_image = cv2.imencode(".jpg", image)
+        encoded_image.tofile(output_path)
+
+        return True
+
+    except Exception as e:
+        logging.error(f"生成可视化图片失败 {image_path}: {str(e)}")
+        return False
+
+
+def move_single_image(
+    source_path: Path,
+    target_dir: Path,
+    result: dict,
+    visualize: bool = False,
+    move_lock: threading.Lock = None,
+) -> bool:
+    """
+    移动单张图片到目标目录（可选生成可视化图片）
+
+    Args:
+        source_path: 源图片路径
+        target_dir: 目标目录
+        result: 检测结果
+        visualize: 是否生成可视化图片
+        move_lock: 线程锁（用于多线程安全）
+
+    Returns:
+        是否移动成功
+    """
+    try:
+        # 确保目标目录存在
+        if move_lock:
+            with move_lock:
+                target_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+        # 计算目标路径
+        dest_path = target_dir / source_path.name
+
+        # 如果目标文件已存在，添加序号
+        if dest_path.exists():
+            counter = 1
+            stem = source_path.stem
+            suffix = source_path.suffix
+            while dest_path.exists():
+                dest_path = target_dir / f"{stem}_{counter}{suffix}"
+                counter += 1
+
+        # 生成可视化图片（如果需要）
+        if visualize:
+            vis_stem = dest_path.stem
+            vis_path = target_dir / f"{vis_stem}_marked{dest_path.suffix}"
+
+            if visualize_fold_detection(str(source_path), result, str(vis_path)):
+                logging.info(f"已生成可视化: {vis_path.name}")
+
+        # 移动原图
+        shutil.move(str(source_path), str(dest_path))
+        logging.info(f"已移动: {source_path.name} -> {dest_path}")
+
+        return True
+
+    except Exception as e:
+        logging.error(f"移动失败 {source_path.name}: {str(e)}")
+        return False
+
+
+def create_instant_move_callback(target_dir: str, visualize: bool = False):
+    """
+    创建即时移动的回调函数
+
+    Args:
+        target_dir: 目标目录
+        visualize: 是否生成可视化图片
+
+    Returns:
+        回调函数
+    """
+    target_path = Path(target_dir)
+    move_lock = threading.Lock()
+    move_stats = {"success": 0, "failed": 0}
+    stats_lock = threading.Lock()
+
+    def callback(result: dict):
+        """检测完成后的回调函数"""
+        # 只处理检测到折角的图片
+        if not result.get("has_fold", False):
+            return
+
+        source_path = Path(result["image_path"])
+
+        # 移动图片
+        success = move_single_image(
+            source_path, target_path, result, visualize=visualize, move_lock=move_lock
+        )
+
+        # 更新统计
+        with stats_lock:
+            if success:
+                move_stats["success"] += 1
+            else:
+                move_stats["failed"] += 1
+
+    # 将统计信息附加到回调函数
+    callback.stats = move_stats
+    callback.stats_lock = stats_lock
+
+    return callback
 
 
 def print_results(results, stats, verbose=False):
@@ -222,6 +414,10 @@ def main():
     print(f"检测目录: {args.directory}")
     print(f"线程数: {args.threads}")
     print(f"递归扫描: {'否' if args.no_recursive else '是'}")
+    if args.target:
+        print(f"目标目录: {args.target}")
+        print(f"即时移动: {'是' if args.instant_move else '否'}")
+        print(f"生成可视化: {'是' if args.visualize else '否'}")
     print("=" * 60)
 
     # 扫描图片文件
@@ -240,10 +436,19 @@ def main():
     detector = FoldDetector()
     thread_manager = ThreadPoolManager(num_threads=args.threads)
 
+    # 准备即时移动的回调（如果需要）
+    callback = None
+    if args.target and args.instant_move:
+        callback = create_instant_move_callback(args.target, visualize=args.visualize)
+        print("\n即时移动模式已启用")
+
     # 执行检测
     print("\n开始检测...")
     results = thread_manager.process_images(
-        image_files, detector, show_progress=not args.no_progress
+        image_files,
+        detector,
+        show_progress=not args.no_progress,
+        on_result_callback=callback,
     )
 
     # 计算统计信息
@@ -256,9 +461,37 @@ def main():
     if args.output:
         save_results(results, stats, args.output)
 
-    # 移动折角图片（如果指定了目标目录）
+    # 处理移动（如果指定了目标目录且未使用即时移动）
     if args.target:
-        move_folded_images(results, args.target)
+        if args.instant_move:
+            # 显示即时移动的统计信息
+            if callback:
+                with callback.stats_lock:
+                    moved = callback.stats["success"]
+                    failed = callback.stats["failed"]
+                print(f"\n移动完成: 成功 {moved} 张, 失败 {failed} 张")
+        else:
+            # 批量移动模式
+            print("\n批量移动模式")
+            # 如果需要可视化，先生成所有可视化图片
+            if args.visualize:
+                print("生成可视化图片...")
+                target_path = Path(args.target)
+                target_path.mkdir(parents=True, exist_ok=True)
+
+                for result in results:
+                    if result.get("has_fold", False):
+                        source_path = Path(result["image_path"])
+                        vis_path = (
+                            target_path
+                            / f"{source_path.stem}_marked{source_path.suffix}"
+                        )
+                        visualize_fold_detection(
+                            str(source_path), result, str(vis_path)
+                        )
+
+            # 移动图片
+            move_folded_images(results, args.target)
 
     print("\n检测完成！\n")
 

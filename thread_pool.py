@@ -31,7 +31,11 @@ class ThreadPoolManager:
         logger.info(f"Initialized ThreadPoolManager with {self.num_threads} threads")
 
     def process_images(
-        self, image_list: List[str], detector, show_progress: bool = True
+        self,
+        image_list: List[str],
+        detector,
+        show_progress: bool = True,
+        on_result_callback: Callable[[Dict], None] = None,
     ) -> List[Dict]:
         """
         并行处理图片列表
@@ -40,6 +44,7 @@ class ThreadPoolManager:
             image_list: 图片文件路径列表
             detector: 折角检测器实例
             show_progress: 是否显示进度条
+            on_result_callback: 结果回调函数，在每个图片处理完成后调用
 
         Returns:
             检测结果列表
@@ -75,20 +80,26 @@ class ThreadPoolManager:
                     result = future.result()
                     results.append(result)
 
+                    # 调用回调函数（如果提供了）
+                    if on_result_callback:
+                        try:
+                            on_result_callback(result)
+                        except Exception as e:
+                            logger.error(f"Callback error for {image_path}: {str(e)}")
+
                     if show_progress:
                         progress_bar.update(1)
 
                 except Exception as e:
                     logger.error(f"Error processing {image_path}: {str(e)}")
-                    results.append(
-                        {
-                            "image_path": image_path,
-                            "has_fold": False,
-                            "confidence": 0.0,
-                            "folded_corners": [],
-                            "error": str(e),
-                        }
-                    )
+                    error_result = {
+                        "image_path": image_path,
+                        "has_fold": False,
+                        "confidence": 0.0,
+                        "folded_corners": [],
+                        "error": str(e),
+                    }
+                    results.append(error_result)
 
                     if show_progress:
                         progress_bar.update(1)
