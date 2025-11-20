@@ -1,0 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Test images and results
+test_images/*.jpg
+test_images/*.jpeg
+test_images/*.png
+test_images/*.bmp
+test_images/*.tiff
+test_images/*.tif
+test_images/*.webp
+results.txt
+results.json
+detection_results/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+

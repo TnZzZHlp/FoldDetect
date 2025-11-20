@@ -1,0 +1,12 @@
+[project]
+name = "folddetect"
+version = "0.1.0"
+description = "Image fold detection tool with multi-threading support"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pillow>=10.0.0",
+    "tqdm>=4.66.0",
+]
