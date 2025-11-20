@@ -16,7 +16,7 @@ class MarkerDetector:
 
     def __init__(
         self,
-        corner_region_ratio: float = 0.3,
+        corner_region_ratio: float = 0.15,
         min_marker_area: int = 100,
         max_marker_area: int = 10000,
         marker_color_threshold: int = 80,
@@ -25,7 +25,7 @@ class MarkerDetector:
         初始化定位点检测器
 
         Args:
-            corner_region_ratio: 角落检测区域比例（默认0.3，即30%）
+            corner_region_ratio: 角落检测区域比例（默认0.15，即15%）
             min_marker_area: 最小定位点面积（像素）
             max_marker_area: 最大定位点面积（像素）
             marker_color_threshold: 定位点颜色阈值（0-255，越小越接近黑色）
