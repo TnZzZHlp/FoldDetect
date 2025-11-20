@@ -49,8 +49,11 @@ class FoldDetector:
         }
 
         try:
-            # 读取图片
-            image = cv2.imread(image_path)
+            # 使用numpy读取文件以支持中文路径
+            # cv2.imread()不支持中文路径，所以使用这种方法
+            image_array = np.fromfile(image_path, dtype=np.uint8)
+            image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+
             if image is None:
                 result["error"] = "Failed to load image"
                 return result

@@ -34,9 +34,9 @@ DETECTION_CONFIG = {
     "canny_threshold2": 150,
     "canny_aperture": 3,
     # 折角判断阈值
-    "corner_region_size": 0.15,  # 角落区域大小（相对于图片尺寸的比例）
+    "corner_region_ratio": 0.15,  # 角落区域大小（相对于图片尺寸的比例）
     "fold_angle_threshold": 20,  # 折角角度阈值（度）
-    "min_contour_area": 100,  # 最小轮廓面积
+    "min_contour_area_ratio": 0.01,  # 最小轮廓面积比例
     # 图像预处理
     "blur_kernel_size": (5, 5),
     "resize_max_dimension": 1024,  # 为提高处理速度，限制最大尺寸
